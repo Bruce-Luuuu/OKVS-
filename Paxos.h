@@ -388,7 +388,7 @@ namespace volePSI
 	public:
 		u64 mNumItems = 0, mNumBins = 0, mItemsPerBin = 0, mWeight = 0, mSsp = 0;
 
-		// the parameters used on a single bim.
+		// the parameters used on a single bin.
 		PaxosParam mPaxosParam;
 		block mSeed;
 

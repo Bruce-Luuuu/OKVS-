@@ -14,25 +14,25 @@ using namespace std;
 
 void perfBaxos(oc::CLP& cmd)
 {
-	auto n = cmd.getOr("n", 1ull << cmd.getOr("nn", 10));
-	auto t = cmd.getOr("t", 1ull);
+	auto n = cmd.getOr("n", 1ull << cmd.getOr("nn", 10));	// -n <value>: The set size.  -nn <value>: the log2 size of the sets.
+	auto t = cmd.getOr("t", 1ull);	 						// -t <value>: the number of trials.
 	//auto rand = cmd.isSet("rand");
-	auto v = cmd.getOr("v", cmd.isSet("v") ? 1 : 0);
-	auto w = cmd.getOr("w", 3);
-	auto ssp = cmd.getOr("ssp", 40);
+	auto v = cmd.getOr("v", cmd.isSet("v") ? 1 : 0);		// -v: verbose.
+	auto w = cmd.getOr("w", 3);								// -w <value>: The okvs weight.          I need to change this parameter!
+	auto ssp = cmd.getOr("ssp", 40);	 					// -ssp <value>: statistical security parameter.
 	auto dt = cmd.isSet("binary") ? PaxosParam::Binary : PaxosParam::GF128;
-	auto nt = cmd.getOr("nt", 0);
+	auto nt = cmd.getOr("nt", 0);	 						// -nt: number of threads.
 
 	//PaxosParam pp(n, w, ssp, dt);
-	auto binSize = 1 << cmd.getOr("lbs", 15);
+	auto binSize = 1 << cmd.getOr("lbs", 15);	 			// -lbs <value>: the log2 bin size.
 	u64 baxosSize;
 	{
 		Baxos paxos;
 		paxos.init(n, binSize, w, ssp, dt, oc::ZeroBlock);
-		baxosSize = paxos.size();
+		baxosSize = paxos.size();	// in Paxos.h line 530
 	}
 	std::vector<block> key(n), val(n), pax(baxosSize);
-	PRNG prng(ZeroBlock);
+	PRNG prng(ZeroBlock);	// generate random key-value pair.
 	prng.get<block>(key);
 	prng.get<block>(val);
 

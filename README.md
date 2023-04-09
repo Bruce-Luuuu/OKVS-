@@ -1,6 +1,6 @@
 # RUN OKVS
 ```shell
-git clone https://github.com/ShallMate/OKVS.git
+git clone https://github.com/Bruce-Luuuu/OKVSplus.git
 cd OKVS
 mkdir build
 cd build

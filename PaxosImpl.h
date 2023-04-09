@@ -789,7 +789,7 @@ namespace volePSI
 			{
 				assert(inputSet.insert(i).second);
 			}
-	}
+		}
 #endif
 		setTimePoint("setInput alloc");
 
