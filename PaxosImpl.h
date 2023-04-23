@@ -2756,9 +2756,9 @@ namespace volePSI
 					for (u64 k = 0; k < batchSize; ++k)
 						binIdxs[k] = binIdxCompress(hashes[k]);
 
-					doMod32(binIdxs.data(), &divider, mNumBins);
+					doMod32(binIdxs.data(), &divider, mNumBins);  // binIdxs.data() mod NumBins in parallel
 
-					for (u64 k = 0; k < batchSize; ++k, ++inIdx)
+					for (u64 k = 0; k < batchSize; ++k, ++inIdx)  // store the mapping
 					{
 						auto binIdx = binIdxs[k];
 						auto bs = binSizes[binIdx]++;
@@ -2777,7 +2777,7 @@ namespace volePSI
 					assert(bs < perThrdMaxBinSize);
 
 					if (inIdx == 9355778)
-						std::cout << "in " << inIdx << " -> bin " << binIdx << " @ " << bs << std::endl;
+						std::cout << "in " << inIdx << " -> bin " << binIdx << " @ " << bs << std::endl;  // what does the code here do?
 					getInputMapping(thrdIdx, binIdx)[bs] = inIdx;
 					h.assign(getValues(thrdIdx, binIdx)[bs], vals_[inIdx]);
 					getHashes(thrdIdx, binIdx)[bs] = hashes[k];
@@ -2837,7 +2837,7 @@ namespace volePSI
 
 				//for each thread, copy the hashes,values that it mapped
 				//to this bin. 
-				u64 binPos = thrdBinSizes(0, binIdx);
+				u64 binPos = thrdBinSizes(0, binIdx);  // what does the code here do?
 				assert(binPos <= perThrdMaxBinSize);
 				assert(hashes.data() == getHashes(0, binIdx).data());
 

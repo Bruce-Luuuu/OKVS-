@@ -135,6 +135,7 @@ void perfPaxosImpl(oc::CLP& cmd)
 int main(int argc, char** argv){
     CLP cmd;
     cmd.parse(argc, argv);
-    perfBaxos(cmd);
+    //perfBaxos(cmd);
+    perfPaxosImpl(cmd);
     return 0;
 }
