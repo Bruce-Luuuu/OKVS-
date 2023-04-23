@@ -75,7 +75,7 @@ void perfPaxosImpl(oc::CLP& cmd)
 	auto w = cmd.getOr("w", 3);
 	auto ssp = cmd.getOr("ssp", 40);
 	auto dt = cmd.isSet("binary") ? PaxosParam::Binary : PaxosParam::GF128;
-	auto cols = cmd.getOr("cols", 0);
+	auto cols = cmd.getOr("cols", 0);    // The size of the okvs elements in multiples of 16 bytes. default = 1.
 
 	PaxosParam pp(n, w, ssp, dt);
 	//std::cout << "e=" << pp.size() / double(n) << std::endl;
@@ -98,7 +98,7 @@ void perfPaxosImpl(oc::CLP& cmd)
 	for (u64 i = 0; i < t; ++i)
 	{
 		Paxos<T> paxos;
-		paxos.init(n, pp, block(i, i));
+		paxos.init(n, pp, block(i, i));  // 需要修改计算rate的方法  还要观察如果rate过小导致失败会不会报错？  会在哪报错？
 
 		if (v > 1)
 			paxos.setTimer(timer);
@@ -112,7 +112,6 @@ void perfPaxosImpl(oc::CLP& cmd)
 		}
 		else
 		{
-
 			paxos.template solve<block>(key, oc::span<block>(val), oc::span<block>(pax));
 			timer.setTimePoint("s" + std::to_string(i));
 			paxos.template decode<block>(key, oc::span<block>(val), oc::span<block>(pax));
@@ -135,7 +134,9 @@ void perfPaxosImpl(oc::CLP& cmd)
 int main(int argc, char** argv){
     CLP cmd;
     cmd.parse(argc, argv);
+
     //perfBaxos(cmd);
-    perfPaxosImpl(cmd);
+
+    perfPaxosImpl<u32>(cmd);  // Does different data types have different effects?
     return 0;
 }
