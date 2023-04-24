@@ -765,10 +765,10 @@ namespace volePSI
 		if (p.mSparseSize + p.mDenseSize < numItems)
 			throw RTE_LOC;
 
-		static_cast<PaxosParam&>(*this) = p;
+		static_cast<PaxosParam&>(*this) = p;   // 把基类指针转换问子类指针 need to modify!
 		mNumItems = static_cast<IdxType>(numItems);
 		mSeed = seed;
-		mHasher.init(mSeed, mWeight, mSparseSize);
+		mHasher.init(mSeed, mWeight, mSparseSize);    // need to modify this too.
 	}
 
 	template<typename IdxType>
@@ -778,7 +778,7 @@ namespace volePSI
 		if (inputs.size() != mNumItems)
 			throw RTE_LOC;
 
-		allocate();
+		allocate();  // 给4个变量按照weight分配空间，也需要修改
 
 		std::vector<IdxType> colWeights(mSparseSize);
 
@@ -835,7 +835,7 @@ namespace volePSI
 
 		setTimePoint("setInput end");
 
-}
+    }
 
 
 	template<typename IdxType>
@@ -925,7 +925,7 @@ namespace volePSI
 
 		auto inIter = inputs.data();
 
-		Matrix<IdxType> rows(gPaxosBuildRowSize, mWeight);
+		Matrix<IdxType> rows(gPaxosBuildRowSize, mWeight);    // 这里的 mWeight 也要改一下
 		std::vector<block> dense(gPaxosBuildRowSize);
 		if (mAddToDecode)
 		{
@@ -1729,7 +1729,6 @@ namespace volePSI
 				helper.assign(P[c], y);
 			}
 		}
-
 	}
 
 
@@ -1893,6 +1892,7 @@ namespace volePSI
 
 		if (mDt == DenseType::GF128)
 		{
+            if (mDenseSize == 0) return;
 			const ValueType* __restrict p2 = h.iterPlus(p, mSparseSize);
 
 			std::array<block, 32> xx;
@@ -2190,9 +2190,8 @@ namespace volePSI
 		Helper& h)
 	{
 		h.assign(values, p[rows[0]]);
-		for (u64 j = 1; j < mWeight; ++j)
+		for (u64 j = 1; j < mWeight; ++j)   // add mWight number positions of p to values. (need to calculate mWight first).
 		{
-
 			h.add(values, p[rows[j]]);
 		}
 
@@ -2271,7 +2270,6 @@ namespace volePSI
 		}
 		else
 		{
-
 			for (IdxType i = 0; i < mNumItems; ++i)
 			{
 				for (auto c : mRows[i])

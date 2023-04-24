@@ -451,7 +451,7 @@ namespace volePSI
 		u64 mWeight, mSparseSize, mIdxSize;
 		oc::AES mAes;
 		std::vector<libdivide::libdivide_u64_t> mMods;
-		//std::vector<libdivide::libdivide_u64_branchfree_t> mModsBF;
+
 		std::vector<u64> mModVals;
 		void init(block seed, u64 weight, u64 paxosSize)
 		{
@@ -462,13 +462,13 @@ namespace volePSI
 
 			mModVals.resize(weight);
 			mMods.resize(weight);
-			//mModsBF.resize(weight);
-			for (u64 i = 0; i < weight; ++i)
+
+			for (u64 i = 0; i < weight; ++i)  // need to change here! 主要是用于行取摸
 			{
 				mModVals[i] = mSparseSize - i;
 				mMods[i] = libdivide::libdivide_u64_gen(mModVals[i]);
-				//mModsBF[i] = libdivide::libdivide_u64_branchfree_gen(mModVals[i]);
 			}
+            // for (u64 i = 0; i < max(weight1, weight2); i++)
 		}
 
 

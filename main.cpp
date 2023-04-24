@@ -114,7 +114,7 @@ void perfPaxosImpl(oc::CLP& cmd)
 		{
 			paxos.template solve<block>(key, oc::span<block>(val), oc::span<block>(pax));
 			timer.setTimePoint("s" + std::to_string(i));
-			paxos.template decode<block>(key, oc::span<block>(val), oc::span<block>(pax));
+			paxos.template decode<block>(key, oc::span<block>(val), oc::span<block>(pax));  // has bug in decode32() function while call multAdd (maybe also in decode1)
 		}
 
 
@@ -125,7 +125,7 @@ void perfPaxosImpl(oc::CLP& cmd)
 		std::cout << timer << std::endl;
 
 	auto tt = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / double(1000);
-	std::cout << "total " << tt << "ms" << std::endl;
+	std::cout << "total " << tt << "ms, e="<< pp.size() / double(n) << std::endl;
 }
 
 
