@@ -828,10 +828,10 @@ namespace volePSI
 		}
 		setTimePoint("setInput buildRow");
 
-		rebuildColumns(colWeights, mWeight * mNumItems);
+		rebuildColumns(colWeights, mWeight * mNumItems);  // 应该不用修改
 		setTimePoint("setInput rebuildColumns");
 
-		mWeightSets.init(colWeights);
+		mWeightSets.init(colWeights);  // 应该不用修改
 
 		setTimePoint("setInput end");
 
@@ -1186,7 +1186,7 @@ namespace volePSI
 		mainRows.reserve(mNumItems); mainCols.reserve(mNumItems);
 		std::vector<std::array<IdxType, 2>> gapRows;
 
-		triangulate(mainRows, mainCols, gapRows);
+		triangulate(mainRows, mainCols, gapRows);  // 三角化 不用改
 
 		output.zerofill();
 
@@ -1716,7 +1716,7 @@ namespace volePSI
 				//assert(P[c] == oc::ZeroBlock);
 
 				auto row = &mRows(i, 0);
-				for (u64 j = 0; j < mWeight; ++j)
+				for (u64 j = 0; j < mWeight; ++j)   // 要改成 mRow[i].size() 这种
 				{
 					auto cc = row[j];
 					helper.add(y, P[cc]);
@@ -2234,7 +2234,7 @@ namespace volePSI
 		auto colIter = mColBacking.data();
 		for (u64 i = 0; i < mSparseSize; ++i)
 		{
-			mCols[i] = span<IdxType>(colIter, colIter);
+			mCols[i] = span<IdxType>(colIter, colIter);  //开始和结尾指针位置
 			colIter += colWeights[i];
 		}
 
@@ -2276,7 +2276,7 @@ namespace volePSI
 				{
 					auto& col = mCols[c];
 					auto s = col.size();
-					col = span<IdxType>(col.data(), s + 1);
+					col = span<IdxType>(col.data(), s + 1);   // 类似 append 操作
 					col[s] = i;
 				}
 			}

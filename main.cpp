@@ -114,9 +114,8 @@ void perfPaxosImpl(oc::CLP& cmd)
 		{
 			paxos.template solve<block>(key, oc::span<block>(val), oc::span<block>(pax));
 			timer.setTimePoint("s" + std::to_string(i));
-			paxos.template decode<block>(key, oc::span<block>(val), oc::span<block>(pax));  // has bug in decode32() function while call multAdd (maybe also in decode1)
+			paxos.template decode<block>(key, oc::span<block>(val), oc::span<block>(pax));
 		}
-
 
 		end = timer.setTimePoint("d" + std::to_string(i));
 	}
@@ -129,6 +128,26 @@ void perfPaxosImpl(oc::CLP& cmd)
 }
 
 
+template<typename T>
+void mixPaxosImpl(oc::CLP& cmd){
+	auto n = cmd.getOr("n", 1ull << cmd.getOr("nn", 10));
+	auto t = cmd.getOr("t", 1ull);
+	auto w = cmd.getOr("w", 3);
+	auto ssp = cmd.getOr("ssp", 40);
+	auto dt = cmd.isSet("binary") ? PaxosParam::Binary : PaxosParam::GF128;
+
+    PaxosParam pp(n, 3, ssp, dt);
+	
+	std::vector<block> key(n), val(n), pax(pp.size());
+	PRNG prng(ZeroBlock);
+	prng.get<block>(key);
+	prng.get<block>(val);
+
+	Paxos<T> paxos;
+	//paxos.init(n, pp, block(i, i));	
+
+
+}
 
 
 int main(int argc, char** argv){
@@ -136,7 +155,15 @@ int main(int argc, char** argv){
     cmd.parse(argc, argv);
 
     //perfBaxos(cmd);
+	
+	//oc::PRNG prng(oc::ZeroBlock);
+	//u64 a[5];
+	//for(u8 i=0;i<5;i++) a[i]=i;
+	//prng.get(a,3);
+	//for(u8 i=0;i<5;i++) cout << a[i]<<endl;
 
-    perfPaxosImpl<u32>(cmd);  // Does different data types have different effects?
+    // perfPaxosImpl<u32>(cmd);
+
+	mixPaxosImpl<u32>(cmd);
     return 0;
 }

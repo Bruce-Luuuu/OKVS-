@@ -344,7 +344,7 @@ namespace volePSI
 			}
 
 			mWeightSets.clear();
-			mWeightSets.resize(200);
+			mWeightSets.resize(200);  //  以重量为索引存储列的node，默认一列重量不超过200
 			//mNodes.resize(weights.size());
 
 			for (IdxType i = 0; i < weights.size(); ++i)
@@ -365,7 +365,7 @@ namespace volePSI
 					auto& ws = mWeightSets[node.mWeight];
 					if (!!(ws != nullptr))
 					{
-						assert(ws->mPrevWeightNode == NullNode);
+						assert(ws->mPrevWeightNode == NullNode);   // 类似链表的操作
 						ws->mPrevWeightNode = idxOf(node);
 						node.mNextWeightNode = idxOf(*ws);
 					}
@@ -374,7 +374,7 @@ namespace volePSI
 				}
 			}
 
-			for (u64 i = mWeightSets.size() - 1; i < mWeightSets.size(); --i)
+			for (u64 i = mWeightSets.size() - 1; i < mWeightSets.size(); --i)   // 卡最大重量，缩一下结构的大小
 			{
 				if (mWeightSets[i])
 				{
@@ -398,11 +398,11 @@ namespace volePSI
 
 				while (node)
 				{
-					assert(node->mWeight == i);
+					assert(node->mWeight == i);  // 验证重量是对应的
 
-					assert(nodes.insert(idxOf(*node)).second);
+					assert(nodes.insert(idxOf(*node)).second);  // 验证没有重复元素
 
-					if (node->mNextWeightNode != NullNode)
+					if (node->mNextWeightNode != NullNode)   // 验证类似链表的指针关系
 					{
 						assert(mNodes[node->mNextWeightNode].mPrevWeightNode == idxOf(*node));
 
@@ -414,7 +414,7 @@ namespace volePSI
 				}
 			}
 
-			assert(nodes.size() == mNodes.size());
+			assert(nodes.size() == mNodes.size());  // 验证总个数匹配：对每个node都操作了
 
 		}
 
