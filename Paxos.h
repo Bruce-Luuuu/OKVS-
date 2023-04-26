@@ -34,7 +34,9 @@ namespace volePSI
 			mDenseSize = 0,
 			mWeight = 0,
 			mG = 0,
-			mSsp = 40;
+			mSsp = 40,
+			mWeight1 = 0,
+			mWeight2 = 0;
 		DenseType mDt = GF128;
 
 		PaxosParam() = default;
@@ -46,8 +48,15 @@ namespace volePSI
 			init(numItems, weight, ssp, dt);
 		}
 
+		PaxosParam(u64 numItems, u64 weight1 = 3, u64 weight2 = 15, u64 ssp = 40, DenseType dt = DenseType::GF128)
+		{
+			initMix(numItems, weight1, weight2, ssp, dt);
+		}
+
 		// computes the paxos parameters based the parameters.
 		void init(u64 numItems, u64 weight = 3, u64 ssp = 40, DenseType dt = DenseType::GF128);
+
+		void initMix(u64 numItems, u64 weight = 3, u64 weight2 = 15, u64 ssp = 40, DenseType dt = DenseType::GF128);
 
 		// the size of the paxos data structure.
 		u64 size() const
@@ -91,6 +100,8 @@ namespace volePSI
 		// The sparse part of the paxos matrix
 		MatrixView<IdxType> mRows;
 
+		std::vector<std::vector<IdxType>> mRowsMix;  // new variable
+
 		// the sparse columns of the matrix
 		span<span<IdxType>> mCols;
 
@@ -117,7 +128,9 @@ namespace volePSI
 		// initialize the paxos with the given parameters.
 		void init(u64 numItems, PaxosParam p, block seed);
 
-		// solve/encode the given inputs,value pair. The paxos data 
+        void initMix(u64 numItems, PaxosParam p, block seed);
+
+        // solve/encode the given inputs,value pair. The paxos data 
 		// structure is written to output. input,value should be numItems 
 		// in size, output should be Paxos::size() in size. If the paxos
 		// should be randomized, then provide a PRNG.
@@ -144,6 +157,10 @@ namespace volePSI
 		// encode can be called more than once.
 		void setInput(span<const block> inputs);
 
+        
+		void setInputMix(span<const block> inputs);  // 新加的函数
+
+
 		// encode the given inputs,value pair based on the already set input. The paxos data 
 		// structure is written to output. input,value should be numItems 
 		// in size, output should be Paxos::size() in size. If the paxos
@@ -155,6 +172,16 @@ namespace volePSI
 			PxVector<ValueType> P(output);
 			auto h = P.defaultHelper();
 			encode(V, P, h, prng);
+		}
+
+
+		template<typename ValueType>
+		void encodeMix(span<const ValueType> values, span<ValueType> output, oc::PRNG* prng = nullptr)
+		{
+			PxVector<const ValueType> V(values);
+			PxVector<ValueType> P(output);
+			auto h = P.defaultHelper();
+			encodeMix(V, P, h, prng);
 		}
 
 		// encode the given inputs,value pair based on the already set input. The paxos data 
@@ -201,12 +228,18 @@ namespace volePSI
 		template<typename Vec, typename ConstVec, typename Helper>
 		void encode(ConstVec& values, Vec& output, Helper& h, oc::PRNG* prng = nullptr);
 
-		// Decode the given input based on the data paxos structure p. The
+        template <typename Vec, typename ConstVec, typename Helper>								// new function here!
+        void encodeMix(ConstVec &values, Vec &output, Helper &h, PRNG *prng = nullptr);
+
+        // Decode the given input based on the data paxos structure p. The
 		// output is written to values.
 		template<typename ValueType>
 		void decode(span<const block> input, span<ValueType> values, span<const ValueType> p);
 
-		// Decode the given input based on the data paxos structure p. The
+        template <typename ValueType>															// new function here!
+        void decodeMix(span<const block> inputs, span<ValueType> values, span<const ValueType> p);
+
+        // Decode the given input based on the data paxos structure p. The
 		// output is written to values. values and p should have the same 
 		// number of columns.
 		template<typename ValueType>
@@ -218,6 +251,8 @@ namespace volePSI
 		template<typename Helper, typename Vec, typename ConstVec>
 		void decode(span<const block> input, Vec& values, ConstVec& p, Helper& h);
 
+		template<typename Helper, typename Vec, typename ConstVec>								// new function here!
+		void decodeMix(span<const block> input, Vec& values, ConstVec& p, Helper& h);
 
 		struct Triangulization
 		{
@@ -247,7 +282,9 @@ namespace volePSI
 		// allocate the memory needed to triangulate.
 		void allocate();
 
-		// decodes 32 instances. rows should contain the row indicies, dense the dense 
+        void allocateMix();
+
+        // decodes 32 instances. rows should contain the row indicies, dense the dense 
 		// part. values is where the values are written to. p is the Paxos, h is the value op. helper.
 		template<typename ValueType, typename Helper, typename Vec>
 		void decode32(const IdxType* rows, const block* dense, ValueType* values, Vec& p, Helper& h);
@@ -289,7 +326,12 @@ namespace volePSI
 			std::vector<IdxType>& mainCols,
 			std::vector<std::array<IdxType, 2>>& gapRows);
 
-		// once triangulated, this is used to assign values 
+        void triangulateMix(  						//add new function here!
+			std::vector<IdxType> &mainRows, 
+			std::vector<IdxType> &mainCols, 
+			std::vector<std::array<IdxType, 2>> &gapRows);
+
+        // once triangulated, this is used to assign values 
 		// to output (paxos).
 		template<typename Vec, typename ConstVec, typename Helper>
 		void backfill(
@@ -301,7 +343,17 @@ namespace volePSI
 			Helper& h,
 			oc::PRNG* prng);
 
-		// once triangulated, this is used to assign values 
+        template <typename Vec, typename ConstVec, typename Helper>    // add new function here !
+        void backfillMix(
+			span<IdxType> mainRows, 
+			span<IdxType> mainCols, 
+			span<std::array<IdxType, 2>> gapRows, 
+			ConstVec& values,
+			Vec& output,
+			Helper &h, 
+			PRNG *prng);
+
+        // once triangulated, this is used to assign values 
 		// to output (paxos). Use the gf128 dense algorithm.
 		template<typename Vec, typename ConstVec, typename Helper>
 		void backfillGf128(
@@ -340,7 +392,9 @@ namespace volePSI
 		// the row data has been populated (via setInput(...)).
 		void rebuildColumns(span<IdxType> colWeights, u64 totalWeight);
 
-		// A sparse representation of the F * C^-1 matrix.
+        void rebuildColumnsMix(span<IdxType> colWeights);
+
+        // A sparse representation of the F * C^-1 matrix.
 		struct FCInv
 		{
 			FCInv(u64 n)
@@ -351,6 +405,11 @@ namespace volePSI
 
 		// returns the sparse representation of the F * C^-1 matrix.
 		FCInv getFCInv(
+			span<IdxType> mainRows,
+			span<IdxType> mainCols,
+			span<std::array<IdxType, 2>> gapRows) const;
+
+		FCInv getFCInvMix(				// add new function here.
 			span<IdxType> mainRows,
 			span<IdxType> mainCols,
 			span<std::array<IdxType, 2>> gapRows) const;

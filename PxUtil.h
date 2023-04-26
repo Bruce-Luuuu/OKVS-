@@ -471,6 +471,23 @@ namespace volePSI
             // for (u64 i = 0; i < max(weight1, weight2); i++)
 		}
 
+		void initMix(block seed, u64 paxosSize)
+		{
+			//mWeight = weight;
+			mSparseSize = paxosSize;
+			mIdxSize = static_cast<IdxType>(oc::roundUpTo(oc::log2ceil(mSparseSize), 8) / 8);
+			mAes.setKey(seed);
+
+			mModVals.resize(4);
+			mMods.resize(4);
+
+			for (u64 i = 0; i < 4; ++i)  // need to change here! 主要是用于行取摸
+			{
+				mModVals[i] = mSparseSize - i;
+				mMods[i] = libdivide::libdivide_u64_gen(mModVals[i]);
+			}
+            // for (u64 i = 0; i < max(weight1, weight2); i++)
+		}
 
 
 		void mod32(u64* vals, u64 modIdx) const;
@@ -479,10 +496,15 @@ namespace volePSI
 		//void hashBuildRow8(const block* input, IdxType* rows, block* hash) const;
 		void hashBuildRow1(const block* input, IdxType* rows, block* hash) const;
 
+		//void hashBuildRow32Mix(const block* input, std::vector<IdxType>& rows, block* hash) const;  // add new function
+
+        void hashBuildRow1Mix(const block* input, std::vector<IdxType>& rows, block* hash) const;  // add new function
+
 		void buildRow(const block& hash, IdxType* row) const;
 		//void buildRow8(const block* hash, IdxType* row) const;
 		void buildRow32(const block* hash, IdxType* row) const;
 
+		void buildRowMix(const block& hash, std::vector<IdxType>& row) const;   // add new function
 	};
 
 	// A Paxos vector type when the elements are of type T.

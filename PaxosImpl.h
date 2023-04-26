@@ -205,6 +205,26 @@ namespace volePSI
 		}
 	}
 
+	inline void  PaxosParam::initMix(u64 numItems, u64 weight1, u64 weight2, u64 ssp, DenseType dt){
+		mWeight1 = weight1;
+		mWeight2 = weight2;
+		mSsp = ssp;
+		mDt = dt;
+
+		double logN = std::log2(numItems);
+		double ee = 1.223;
+		double logW = std::log2(weight1);
+		double logLambdaVsE = 0.555 * logN + 0.093 * std::pow(logW, 3) - 1.01 * std::pow(logW, 2) + 2.925 * logW - 0.133;
+		double lambdaVsE = std::pow(2, logLambdaVsE);
+		double b = -9.2 - lambdaVsE * ee;
+		double e = (ssp - b) / lambdaVsE;
+		mG = std::floor(ssp / ((weight1 - 2) * std::log2(e * numItems)));
+
+		mDenseSize = mG;
+		//mSparseSize = numItems * e;
+		mSparseSize = numItems * 1.1123;
+	}
+
 #ifdef ENABLE_SSE
 	using block256 = __m256i;
 	inline block256 my_libdivide_u64_do_vec256(const block256& x, const libdivide::libdivide_u64_t* divider)
@@ -683,6 +703,62 @@ namespace volePSI
 		}
 	}
 
+	template<typename IdxType>
+	void PaxosHash<IdxType>::buildRowMix(const block& hash, std::vector<IdxType>& row) const
+	{
+		//  alpha=0.88690   3 * alpha + 15 * (1 - alpha)
+		//  3809206495/(2^32) = 0.8869000000413507
+		if(hash.get<u32>(0) < 3809206494u)   // weight = 3
+	    {
+			row.reserve(3);
+			u32* rr = (u32*)&hash;
+			auto rr0 = *(u64*)(&rr[0]);
+			auto rr1 = *(u64*)(&rr[1]);
+			auto rr2 = *(u64*)(&rr[2]);
+			row.emplace_back((IdxType)(rr0 % mSparseSize));
+			row.emplace_back((IdxType)(rr1 % (mSparseSize - 1)));
+			row.emplace_back((IdxType)(rr2 % (mSparseSize - 2)));
+
+			assert(row[0] < mSparseSize);
+			assert(row[1] < mSparseSize);
+			assert(row[2] < mSparseSize);
+
+			auto min = std::min<IdxType>(row[0], row[1]);
+			auto max = row[0] + row[1] - min;
+
+			if (max == row[1])
+			{
+				++row[1];
+				++max;
+			}
+
+			if (row[2] >= min)
+				++row[2];
+
+			if (row[2] >= max)
+				++row[2];
+		}
+		else   // weight = 15	
+		{
+			row.reserve(15);
+			auto hh = hash;
+			for (u64 j = 0; j < 15; ++j)
+			{
+				auto modulus = (mSparseSize - j);
+				hh = hh.gf128Mul(hh);
+				auto colIdx = hh.get<u64>(0) % modulus;
+				u64 k = 0;
+				while(k != j)
+				{
+					if(row[k] <= colIdx) ++colIdx;
+					else break;
+					++k;
+				}
+				row.insert(row.begin() + k, colIdx);
+			}
+		}
+	}
+
 
 	template<typename IdxType>
 	void PaxosHash<IdxType>::hashBuildRow32(
@@ -702,6 +778,26 @@ namespace volePSI
 	{
 		*hash = mAes.hashBlock(inIter[0]);
 		buildRow(*hash, rows);
+	}
+
+	// template<typename IdxType>
+	// void PaxosHash<IdxType>::hashBuildRow32Mix(
+	// 	const block* inIter,
+	// 	std::vector<IdxType>& rows,
+	// 	block* hash) const
+	// {
+	// 	mAes.hashBlocks(span<const block>(inIter, 32), span<block>(hash, 32));
+	// 	//buildRow32(hash, rows);
+	// }
+
+	template<typename IdxType>
+	void PaxosHash<IdxType>::hashBuildRow1Mix(
+		const block* inIter,
+		std::vector<IdxType>& rows,
+		block* hash) const
+	{
+		*hash = mAes.hashBlock(inIter[0]);
+		buildRowMix(*hash, rows);
 	}
 
 
@@ -749,6 +845,36 @@ namespace volePSI
 		assert(iter == mAllocation.get() + size);
 	}
 
+
+	template<typename IdxType>
+	void Paxos<IdxType>::allocateMix()  
+	{
+		auto size =
+			sizeof(block) * mNumItems +
+			sizeof(IdxType) * (mNumItems * 5) +  // 可以更优化一点
+			sizeof(span<IdxType>) * mSparseSize;
+
+		if (mAllocationSize < size)
+		{
+			mAllocation = {};
+			mAllocation.reset(new u8[size]);
+		}
+
+		auto iter = mAllocation.get();
+
+		mRowsMix.reserve(mNumItems);
+		for (u64 i = 0;i < mNumItems; ++i) 
+		{
+			mRowsMix.emplace_back(std::vector<IdxType>());
+		}
+
+		mDense = initSpan<block>(iter, mNumItems);
+		mColBacking = initSpan<IdxType>(iter, mNumItems * 5);  // 可以更优化一点
+		mCols = initSpan<span<IdxType>>(iter, mSparseSize);
+		assert(iter == mAllocation.get() + size);
+	}
+
+
 	constexpr u8 gPaxosBuildRowSize = 32;
 
 	template<typename IdxType>
@@ -770,6 +896,28 @@ namespace volePSI
 		mSeed = seed;
 		mHasher.init(mSeed, mWeight, mSparseSize);    // need to modify this too.
 	}
+
+
+	template<typename IdxType>
+	void Paxos<IdxType>::initMix(u64 numItems, PaxosParam p, block seed)
+	{
+		if (p.mSparseSize >= u64(std::numeric_limits<IdxType>::max()))
+		{
+			std::cout << "the size of the paxos is too large for the index type. "
+				<< p.mSparseSize << " vs "
+				<< u64(std::numeric_limits<IdxType>::max()) << " " << LOCATION << std::endl;
+			throw RTE_LOC;
+		}
+
+		if (p.mSparseSize + p.mDenseSize < numItems)
+			throw RTE_LOC;
+
+		static_cast<PaxosParam&>(*this) = p;
+		mNumItems = static_cast<IdxType>(numItems);
+		mSeed = seed;
+		mHasher.initMix(mSeed, mSparseSize);
+	}
+
 
 	template<typename IdxType>
 	void Paxos<IdxType>::setInput(span<const block> inputs)
@@ -802,9 +950,6 @@ namespace volePSI
 			{
 				auto rr = mRows[i].data();
 
-				//if (gPaxosBuildRowSize == 8)
-				//	mHasher.hashBuildRow8(inIter, rr, &mDense[i]);
-				//else 
 				if (gPaxosBuildRowSize == 32)
 					mHasher.hashBuildRow32(inIter, rr, &mDense[i]);
 				else
@@ -828,13 +973,84 @@ namespace volePSI
 		}
 		setTimePoint("setInput buildRow");
 
-		rebuildColumns(colWeights, mWeight * mNumItems);  // 应该不用修改
+		rebuildColumns(colWeights, mWeight * mNumItems);
 		setTimePoint("setInput rebuildColumns");
 
 		mWeightSets.init(colWeights);  // 应该不用修改
 
 		setTimePoint("setInput end");
 
+    }
+
+	template<typename IdxType>
+	void Paxos<IdxType>::setInputMix(span<const block> inputs)
+	{
+		setTimePoint("setInputMix begin");
+		if (inputs.size() != mNumItems)
+			throw RTE_LOC;
+
+		allocateMix();  // 给4个变量按照weight分配空间，也需要修改
+
+		std::vector<IdxType> colWeights(mSparseSize);
+
+#ifndef NDEBUG
+		{
+			std::unordered_set<block> inputSet;
+			for (auto i : inputs)
+			{
+				assert(inputSet.insert(i).second);
+			}
+		}
+#endif
+		setTimePoint("setInputMix alloc");
+		auto inIter = inputs.data();
+		for (u64 i = 0; i < mNumItems; ++i, ++inIter)
+		{
+			mHasher.hashBuildRow1Mix(inIter, mRowsMix[i], &mDense[i]);
+			for (auto c : mRowsMix[i])
+			{
+				++colWeights[c];
+			}
+		}
+/*      // 需要思考怎么使用 build32 加速
+		{
+			auto main = inputs.size() / gPaxosBuildRowSize * gPaxosBuildRowSize;
+			auto inIter = inputs.data();
+		
+			for (u64 i = 0; i < main; i += gPaxosBuildRowSize, inIter += gPaxosBuildRowSize)  // Need to change this loop.
+			{
+				auto rr = mRowsMix[i];
+		
+				if (gPaxosBuildRowSize == 32)
+					mHasher.hashBuildRow32Mix(inIter, rr, &mDense[i]);
+				else
+					throw RTE_LOC;
+		
+				span<IdxType> cols(rr, gPaxosBuildRowSize * mWeight);
+				for (auto c : cols)
+				{
+					++colWeights[c];
+				}
+			}
+		
+			for (u64 i = main; i < mNumItems; ++i, ++inIter)
+			{
+				mHasher.hashBuildRow1Mix(inIter, mRowsMix[i], &mDense[i]);
+				for (auto c : mRowsMix[i])
+				{
+					++colWeights[c];
+				}
+			}
+		}
+*/
+		setTimePoint("setInputMix buildRow");
+
+		rebuildColumnsMix(colWeights);
+		setTimePoint("setInputMix rebuildColumns");
+
+		mWeightSets.init(colWeights);  // 应该不用修改
+
+		setTimePoint("setInputMix end");
     }
 
 
@@ -875,6 +1091,16 @@ namespace volePSI
 		PxVector<const ValueType> PP(p);
 		auto h = PP.defaultHelper();
 		decode(inputs, VV, PP, h);
+	}
+
+	template<typename IdxType>
+	template<typename ValueType>
+	void Paxos<IdxType>::decodeMix(span<const block> inputs, span<ValueType> values, span<const ValueType> p)
+	{
+		PxVector<ValueType> VV(values);
+		PxVector<const ValueType> PP(p);
+		auto h = PP.defaultHelper();
+		decodeMix(inputs, VV, PP, h);
 	}
 
 
@@ -972,6 +1198,75 @@ namespace volePSI
 			}
 		}
 
+		setTimePoint("decode done");
+	}
+
+	template<typename IdxType>
+	template<typename Helper, typename Vec, typename ConstVec>
+	void Paxos<IdxType>::decodeMix(span<const block> inputs, Vec& values, ConstVec& PP, Helper& h)
+	{
+		setTimePoint("decode begin");
+
+		if (PP.size() != size())
+			throw RTE_LOC;
+        
+		auto inIter = inputs.data();
+/*		
+		auto main = inputs.size() / gPaxosBuildRowSize * gPaxosBuildRowSize;
+
+		Matrix<IdxType> rows(gPaxosBuildRowSize, mWeight);    // 这里的 mWeight 也要改一下
+		std::vector<block> dense(gPaxosBuildRowSize);
+		if (mAddToDecode)
+		{
+			auto v = h.newVec(gPaxosBuildRowSize);
+			for (u64 i = 0; i < main; i += gPaxosBuildRowSize, inIter += gPaxosBuildRowSize)
+			{
+				assert(gPaxosBuildRowSize == 32);
+				mHasher.hashBuildRow32(inIter, rows.data(), dense.data());
+				decode32(rows.data(), dense.data(), v[0], PP, h);
+				for (u64 j = 0; j < 32; j += 8)
+				{
+					h.add(values[i + j + 0], v[j + 0]);
+					h.add(values[i + j + 1], v[j + 1]);
+					h.add(values[i + j + 2], v[j + 2]);
+					h.add(values[i + j + 3], v[j + 3]);
+					h.add(values[i + j + 4], v[j + 4]);
+					h.add(values[i + j + 5], v[j + 5]);
+					h.add(values[i + j + 6], v[j + 6]);
+					h.add(values[i + j + 7], v[j + 7]);
+				}
+			}
+
+			for (u64 i = main; i < inputs.size(); ++i, ++inIter)
+			{
+				mHasher.hashBuildRow1(inIter, rows.data(), dense.data());
+				decode1(rows.data(), dense.data(), v[0], PP, h);
+				h.add(values[i], v[0]);
+			}
+		}
+		else
+		{
+			for (u64 i = 0; i < main; i += gPaxosBuildRowSize, inIter += gPaxosBuildRowSize)
+			{
+				assert(gPaxosBuildRowSize == 32);
+				mHasher.hashBuildRow32(inIter, rows.data(), dense.data());
+				decode32(rows.data(), dense.data(), values[i], PP, h);
+			}
+
+			for (u64 i = main; i < inputs.size(); ++i, ++inIter)
+			{
+				mHasher.hashBuildRow1(inIter, rows.data(), dense.data());
+				decode1(rows.data(), dense.data(), values[i], PP, h);
+			}
+		}
+*/
+		std::vector<IdxType> row;
+		block dense;
+		for (u64 i = 0; i < inputs.size(); ++i, ++inIter)
+		{
+			mHasher.hashBuildRow1Mix(inIter, row, &dense); 		// why so slow?
+			//decode1(rows.data(), dense.data(), values[i], PP, h);
+		}
 		setTimePoint("decode done");
 	}
 
@@ -1088,7 +1383,7 @@ namespace volePSI
 		setTimePoint("triangulate begin");
 
 
-		if (mWeightSets.mWeightSets.size() <= 1)
+		if (mWeightSets.mWeightSets.size() <= 1)  // 为什么会有小于 1 的时候
 		{
 			std::vector<IdxType> colWeights(mSparseSize);
 			for (u64 i = 0; i < mCols.size(); ++i)
@@ -1118,7 +1413,7 @@ namespace volePSI
 					rowSet[rowIdx] = 1;
 
 					// iterate over the other columns in this row.
-					for (auto colIdx2 : mRows[rowIdx])
+					for (auto colIdx2 : mRows[rowIdx])    // 需要改这里 ！！
 					{
 						auto& node = mWeightSets.mNodes[colIdx2];
 
@@ -1176,6 +1471,103 @@ namespace volePSI
 	}
 
 	template<typename IdxType>
+	void Paxos<IdxType>::triangulateMix(
+		std::vector<IdxType>& mainRows,
+		std::vector<IdxType>& mainCols,
+		std::vector<std::array<IdxType, 2>>& gapRows)
+	{
+		setTimePoint("triangulate begin");
+
+
+		if (mWeightSets.mWeightSets.size() <= 1)  // 为什么会有小于 1 的时候
+		{
+			std::vector<IdxType> colWeights(mSparseSize);
+			for (u64 i = 0; i < mCols.size(); ++i)
+			{
+				colWeights[i] = static_cast<IdxType>(mCols[i].size());
+			}
+			mWeightSets.init(colWeights);
+		}
+
+		std::vector<u8> rowSet(mNumItems);
+		while (mWeightSets.mWeightSets.size() > 1)
+		{
+			auto& col = mWeightSets.getMinWeightNode();
+
+			mWeightSets.popNode(col);
+			col.mWeight = 0;
+			auto colIdx = mWeightSets.idxOf(col);
+
+			bool first = true;
+
+			// iterate over all the rows in the next column
+			for (auto rowIdx : mCols[colIdx])
+			{
+				// check if this row has already been set.
+				if (rowSet[rowIdx] == 0)
+				{
+					rowSet[rowIdx] = 1;
+
+					// iterate over the other columns in this row.
+					for (auto colIdx2 : mRowsMix[rowIdx])    // 需要改这里 ！！
+					{
+						auto& node = mWeightSets.mNodes[colIdx2];
+
+						// if this column still hasn't been fixed,
+						// then decrement it's weight.
+						if (node.mWeight)
+						{
+							assert(node.mWeight);
+
+							// decrement the weight.
+							mWeightSets.popNode(node);
+							--node.mWeight;
+							mWeightSets.pushNode(node);
+
+							// as an optimization, prefetch this next 
+							// column if its ready to be used..
+							if (node.mWeight == 1)
+							{
+								_mm_prefetch((const char*)&mCols[colIdx2], _MM_HINT_T0);
+							}
+						}
+					}
+
+					// if this is the first row, then we will use 
+					// it as the row on the diagonal. Otherwise
+					// we will place the extra rows in the "gap"
+					if (!!(first))
+					{
+						mainCols.push_back(colIdx);
+						mainRows.push_back(rowIdx);
+						first = false;
+					}
+					else
+					{
+						// check that we dont have duplicates
+						if (mDense[mainRows.back()] == mDense[rowIdx])
+						{
+							std::cout <<
+								"Paxos error, Duplicate keys were detected at idx " << mainRows.back() << " " << rowIdx << ", key="
+								<< mDense[mainRows.back()] << std::endl;
+							throw RTE_LOC;
+						}
+						gapRows.emplace_back(
+							std::array<IdxType, 2>{ rowIdx, mainRows.back() });
+					}
+				}
+			}
+
+			if (first)
+				throw RTE_LOC;
+		}
+
+		setTimePoint("triangulate end");
+
+	}
+
+
+	template<typename IdxType>
 	template<typename Vec, typename ConstVec, typename Helper>
 	void Paxos<IdxType>::encode(ConstVec& values, Vec& output, Helper& h, PRNG* prng)
 	{
@@ -1207,6 +1599,42 @@ namespace volePSI
 		}
 
 		backfill(mainRows, mainCols, gapRows, values, output, h, prng);
+	}
+
+	template<typename IdxType>
+	template<typename Vec, typename ConstVec, typename Helper>
+	void Paxos<IdxType>::encodeMix(ConstVec& values, Vec& output, Helper& h, PRNG* prng)
+	{
+		if (static_cast<u64>(output.size()) != size())
+			throw RTE_LOC;
+
+		std::vector<IdxType> mainRows, mainCols;
+		mainRows.reserve(mNumItems); mainCols.reserve(mNumItems);
+		std::vector<std::array<IdxType, 2>> gapRows;
+
+		triangulateMix(mainRows, mainCols, gapRows);
+
+		// std::cout << "gap size:" << gapRows.size() << std::endl;
+
+		output.zerofill();
+
+		if (prng)
+		{
+			typename WeightData<IdxType>::WeightNode* node = mWeightSets.mWeightSets[0];
+			while (node != nullptr)
+			{
+				auto colIdx = mWeightSets.idxOf(*node);
+				//prng->get(output[colIdx], output.stride());
+				h.randomize(output[colIdx], *prng);
+
+				if (node->mNextWeightNode == mWeightSets.NullNode)
+					node = nullptr;
+				else
+					node = mWeightSets.mNodes.data() + node->mNextWeightNode;
+			}
+		}
+
+		backfillMix(mainRows, mainCols, gapRows, values, output, h, prng);  // need to change here !!!
 	}
 
 	template<typename IdxType>
@@ -1411,6 +1839,181 @@ namespace volePSI
 		{
 			backfillBinary(mainRows, mainCols, gapRows, X, P, h, prng);
 		}
+	}
+
+	template<typename IdxType>
+	template<typename Vec, typename ConstVec, typename Helper>
+	void Paxos<IdxType>::backfillMix(
+		span<IdxType> mainRows,
+		span<IdxType> mainCols,
+		span<std::array<IdxType, 2>> gapRows,
+		ConstVec& X,
+		Vec& P,
+		Helper& helper,
+		PRNG* prng)
+	{
+		setTimePoint("backFill begin");
+		// default implementation for datatype GF128.
+		// Imitate backfillGF128() for implementation
+		
+		assert(mDt == DenseType::GF128);
+		auto g = gapRows.size();
+		auto p2 = P.subspan(mSparseSize);
+
+		if (g > mDenseSize)
+			throw RTE_LOC;
+
+		if (g)
+		{
+			auto fcinv = getFCInvMix(mainRows, mainCols, gapRows);  // need to change! 
+			auto size = prng ? mDenseSize : g;
+
+			//      |dense[r0]^1, dense[r0]^2, ... |
+			// E =  |dense[r1]^1, dense[r1]^2, ... |
+			//      |dense[r2]^1, dense[r2]^2, ... |
+			//      ...
+			// EE = E - FC^-1 B
+			Matrix<block> EE(size, size);
+
+			// xx = x' - FC^-1 x
+			Vec xx = helper.newVec(size);
+			//std::vector<block> xx(size);
+			std::vector<block> fcb(size);
+
+			for (u64 i = 0; i < g; ++i)
+			{
+				block e = mDense[gapRows[i][0]];
+				block ej = e;
+				EE(i, 0) = e;//^ fcb;
+				for (u64 j = 1; j < size; ++j)
+				{
+					ej = ej.gf128Mul(e);
+					EE(i, j) = ej;
+				}
+
+
+				helper.assign(xx[i], X[gapRows[i][0]]);
+				for (auto j : fcinv.mMtx[i])
+				{
+					helper.add(xx[i], X[j]);
+					auto fcb = mDense[j];
+					auto fcbk = fcb;
+					EE(i, 0) = EE(i, 0) ^ fcbk;
+					for (u64 k = 1; k < size; ++k)
+					{
+						fcbk = fcbk.gf128Mul(fcb);
+						EE(i, k) = EE(i, k) ^ fcbk;
+					}
+				}
+			}
+
+			if (prng)
+			{
+				for (u64 i = g; i < mDenseSize; ++i)
+				{
+					prng->get<block>(EE[i]);
+					helper.randomize(xx[i], *prng);
+				}
+			}
+
+			EE = gf128Inv(EE);
+			if (EE.size() == 0)
+				throw std::runtime_error("E' not invertable. " LOCATION);
+
+			// now we compute
+			// p' = (E - FC^-1 B)^-1 * (x'-FC^-1 x)
+			//    = EE * xx
+			for (u64 i = 0; i < size; ++i)
+			{
+				auto pp = p2[i];
+				for (u64 j = 0; j < size; ++j)
+				{
+					//pp = pp ^ xx[j] * EE(i, j);
+					helper.multAdd(pp, xx[j], EE(i, j));
+				}
+			}
+		}
+		else if (prng)
+		{
+			for (u64 i = 0; i < static_cast<u64>(p2.size()); ++i)
+				helper.randomize(p2[i], *prng);
+		}
+// /*
+		auto outColIter = mainCols.rbegin();
+		auto rowIter = mainRows.rbegin();
+		bool doDense = g || prng;
+
+#define GF128_DENSE_BACKFILL										\
+        if(doDense){														\
+            block d = mDense[i];								\
+            block x = d;										\
+            helper.multAdd(y, p2[0], x);						\
+                                                                \
+            for (u64 i = 1; i < mDenseSize; ++i)				\
+            {													\
+                x = x.gf128Mul(d);								\
+                helper.multAdd(y, p2[i], x);					\
+            }													\
+        }
+
+		auto yy = helper.newElement();
+		auto y = helper.asPtr(yy);
+
+
+		for (u64 k = 0; k < mainRows.size(); ++k)
+		{
+			auto i = *rowIter;
+			auto c = *outColIter;
+			++outColIter;
+			++rowIter;
+			if (mRowsMix[i].size() == 3)
+			{
+				//auto y = X[i];
+				helper.assign(y, X[i]);
+
+				auto cc0 = mRowsMix[i][0];      // change here !
+				auto cc1 = mRowsMix[i][1];
+				auto cc2 = mRowsMix[i][2];
+				//y = y ^ P[cc0] ^ P[cc1] ^ P[cc2];
+				helper.add(y, P[cc0]);
+				helper.add(y, P[cc1]);
+				helper.add(y, P[cc2]);
+
+				//GF128_DENSE_BACKFILL;
+				if (doDense) {
+
+					block d = mDense[i];
+					block x = d;
+					helper.multAdd(y, p2[0], x);
+
+					for (u64 i = 1; i < mDenseSize; ++i)
+					{
+						x = x.gf128Mul(d);
+						helper.multAdd(y, p2[i], x);
+					}
+				}
+
+				//P[c] = y;
+				helper.assign(P[c], y);
+			}
+			else
+		    {
+				//auto y = X[i];
+				helper.assign(y, X[i]);
+
+				for (auto cc : mRowsMix[i])
+				{
+					helper.add(y, P[cc]);
+					//y = y ^ P[cc];
+				}
+
+				GF128_DENSE_BACKFILL;
+
+				//P[c] = y;
+				helper.assign(P[c], y);
+			}
+		}
+// */
 	}
 
 	template<typename IdxType>
@@ -2284,6 +2887,53 @@ namespace volePSI
 	}
 
 	template<typename IdxType>
+	void Paxos<IdxType>::rebuildColumnsMix(span<IdxType> colWeights)
+	{
+		auto colIter = mColBacking.data();
+		for (u64 i = 0; i < mSparseSize; ++i)
+		{
+			mCols[i] = span<IdxType>(colIter, colIter);  //开始和结尾指针位置
+			colIter += colWeights[i];
+		}
+
+		for (IdxType i = 0; i < mNumItems; ++i)
+		{
+			if (mRowsMix[i].size() == 3)
+			{
+				auto& c0 = mCols[mRowsMix[i][0]];
+				auto& c1 = mCols[mRowsMix[i][1]];
+				auto& c2 = mCols[mRowsMix[i][2]];
+
+				auto s0 = c0.size();
+				auto s1 = c1.size();
+				auto s2 = c2.size();
+
+				auto d0 = c0.data();
+				auto d1 = c1.data();
+				auto d2 = c2.data();
+
+				c0 = span<IdxType>(d0, s0 + 1);
+				c1 = span<IdxType>(d1, s1 + 1);
+				c2 = span<IdxType>(d2, s2 + 1);
+
+				c0[s0] = i;
+				c1[s1] = i;
+				c2[s2] = i;
+			}
+			else  // 优化：像 size=3 一样写开看是否能加速
+			{
+				for (auto c : mRowsMix[i])
+				{
+					auto& col = mCols[c];
+					auto s = col.size();
+					col = span<IdxType>(col.data(), s + 1);   // 类似 append 操作
+					col[s] = i;
+				}
+			}
+		}
+	}
+
+	template<typename IdxType>
 	typename Paxos<IdxType>::FCInv Paxos<IdxType>::getFCInv(
 		span<IdxType> mainRows,
 		span<IdxType> mainCols,
@@ -2302,7 +2952,7 @@ namespace volePSI
 		for (u64 i = 0; i < gapRows.size(); ++i)
 		{
 			if (std::memcmp(
-				mRows[gapRows[i][0]].data(),
+				mRows[gapRows[i][0]].data(),				// TODO here !!!
 				mRows[gapRows[i][1]].data(),
 				mWeight * sizeof(IdxType)) == 0)
 			{
@@ -2352,6 +3002,96 @@ namespace volePSI
 					ret.mMtx[i].push_back(HRow);
 
 					for (auto HCol : mRows[HRow])
+					{
+						auto CCol2 = colMapping[HCol];
+						if (CCol2 != IdxType(-1))
+						{
+							assert(CCol2 <= CCol);
+
+							// Xor in the row CRow from C into the current
+							// row of F
+							auto iter = row.find(CCol2);
+							if (iter == row.end())
+								row.insert(CCol2);
+							else
+								row.erase(iter);
+						}
+					}
+
+					assert(row.size() == 0 || *row.begin() != CCol);
+				}
+			}
+		}
+
+		return ret;
+	}
+
+	
+	template<typename IdxType>
+	typename Paxos<IdxType>::FCInv Paxos<IdxType>::getFCInvMix(
+		span<IdxType> mainRows,
+		span<IdxType> mainCols,
+		span<std::array<IdxType, 2>> gapRows) const
+	{
+
+		// maps the H column indexes to F,C column Indexes
+		std::vector<IdxType> colMapping;
+		FCInv ret(gapRows.size());
+		auto m = mainRows.size();
+
+		// the input rows are in reverse order compared to the
+		// logical algorithm. This inverts the row index.
+		auto invertRowIdx = [m](auto i) { return m - i - 1; };
+
+		for (u64 i = 0; i < gapRows.size(); ++i)
+		{
+			if (mRowsMix[gapRows[i][0]] == mRowsMix[gapRows[i][1]])
+			{
+				// special/common case where FC^-1 [i] = 0000100000
+				// where the 1 is at position gapRows[i][1]. This code is
+				// used to speed up this common case.
+				ret.mMtx[i].push_back(gapRows[i][1]);
+			}
+			else
+			{
+				// for the general case we need to implicitly create the C
+				// matrix. The issue is that currently C is defined by mainRows
+				// and mainCols and this form isn't ideal for the computation 
+				// of computing F C^-1. In particular, we will need to know which
+				// columns of the overall matrix H live in C. To do this we will construct
+				// colMapping. For columns of H that are in C, colMapping will give us
+				// the column in C. We only construct this mapping when its needed.
+				if (colMapping.size() == 0)
+				{
+					colMapping.resize(size(), -1);
+					for (u64 i = 0; i < m; ++i)
+						colMapping[mainCols[invertRowIdx(i)]] = i;
+				}
+
+				// the current row of F. We initialize this as just F_i
+				// and then Xor in rows of C until its the zero row.
+				std::set<IdxType, std::greater<IdxType>> row;
+				for(auto c1: mRowsMix[gapRows[i][0]])		// change loop here !
+				{
+					if (colMapping[c1] != IdxType(-1))
+						row.insert(colMapping[c1]);
+				}
+
+				while (row.size())
+				{
+					// the column of C, F that we will cancel (by adding
+					// the corresponding row of C to F_i. We will pick the 
+					// row of C as the row with index CCol.
+					auto CCol = *row.begin();
+
+					// the row of C we will add to F_i
+					auto CRow = CCol;
+
+					// the row of H that we will add to F_i
+					auto HRow = mainRows[invertRowIdx(CRow)];
+					ret.mMtx[i].push_back(HRow);
+
+					for (auto HCol : mRowsMix[HRow])			// change here !
 					{
 						auto CCol2 = colMapping[HCol];
 						if (CCol2 != IdxType(-1))

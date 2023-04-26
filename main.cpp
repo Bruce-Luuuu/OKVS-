@@ -130,13 +130,13 @@ void perfPaxosImpl(oc::CLP& cmd)
 
 template<typename T>
 void mixPaxosImpl(oc::CLP& cmd){
-	auto n = cmd.getOr("n", 1ull << cmd.getOr("nn", 10));
+	auto n = cmd.getOr("n", 1ull << cmd.getOr("nn", 14));
 	auto t = cmd.getOr("t", 1ull);
 	auto w = cmd.getOr("w", 3);
 	auto ssp = cmd.getOr("ssp", 40);
 	auto dt = cmd.isSet("binary") ? PaxosParam::Binary : PaxosParam::GF128;
 
-    PaxosParam pp(n, 3, ssp, dt);
+    PaxosParam pp(n, 3, 15, ssp, dt);
 	
 	std::vector<block> key(n), val(n), pax(pp.size());
 	PRNG prng(ZeroBlock);
@@ -144,9 +144,18 @@ void mixPaxosImpl(oc::CLP& cmd){
 	prng.get<block>(val);
 
 	Paxos<T> paxos;
-	//paxos.init(n, pp, block(i, i));	
+	Timer timer;
+	paxos.initMix(n, pp, block(1, 1));
 
+	paxos.setTimer(timer);
 
+    paxos.setInputMix(key);
+
+	paxos.template encodeMix<block>(oc::span<block>(val), oc::span<block>(pax));
+
+	paxos.template decodeMix<block>(key, oc::span<block>(val), oc::span<block>(pax));
+
+	std::cout << timer << std::endl;
 }
 
 
@@ -163,6 +172,13 @@ int main(int argc, char** argv){
 	//for(u8 i=0;i<5;i++) cout << a[i]<<endl;
 
     // perfPaxosImpl<u32>(cmd);
+
+	// u8 x[10];
+	// oc::span<u8> a(x,8);
+    // a = oc::span<u8>(a.data(), a.size()+1);
+	// a[0]=12;
+	// cout << (int)a[0] << (int)x[0];
+
 
 	mixPaxosImpl<u32>(cmd);
     return 0;
