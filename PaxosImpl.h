@@ -222,7 +222,7 @@ namespace volePSI
 
 		mDenseSize = mG;
 		//mSparseSize = numItems * e;
-		mSparseSize = numItems * 1.1123;
+		mSparseSize = numItems * 1.110;
 	}
 
 #ifdef ENABLE_SSE
@@ -851,7 +851,7 @@ namespace volePSI
 	{
 		auto size =
 			sizeof(block) * mNumItems +
-			sizeof(IdxType) * (mNumItems * 5) +  // 可以更优化一点
+			sizeof(IdxType) * static_cast<int>(mNumItems * 4.5) +  // 可以更优化一点
 			sizeof(span<IdxType>) * mSparseSize;
 
 		if (mAllocationSize < size)
@@ -863,13 +863,13 @@ namespace volePSI
 		auto iter = mAllocation.get();
 
 		mRowsMix.reserve(mNumItems);
-		for (u64 i = 0;i < mNumItems; ++i) 
+		for (u64 i = 0; i < mNumItems; ++i) 
 		{
 			mRowsMix.emplace_back(std::vector<IdxType>());
 		}
 
 		mDense = initSpan<block>(iter, mNumItems);
-		mColBacking = initSpan<IdxType>(iter, mNumItems * 5);  // 可以更优化一点
+		mColBacking = initSpan<IdxType>(iter, static_cast<int>(mNumItems * 4.5));  // 可以更优化一点
 		mCols = initSpan<span<IdxType>>(iter, mSparseSize);
 		assert(iter == mAllocation.get() + size);
 	}

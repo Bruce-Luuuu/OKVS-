@@ -5,8 +5,8 @@ add_executable(main main.cpp SimpleIndex.cpp)
 
 find_package(libOTe REQUIRED HINTS ../libOTe)  # You may need to modify the path here.
 
-# set(CMAKE_BUILD_TYPE Release)  REMEMBER TO RECOVER!!!!
-set(CMAKE_BUILD_TYPE DEBUG)
+set(CMAKE_BUILD_TYPE Release)
+# set(CMAKE_BUILD_TYPE DEBUG)
 
 target_compile_options(main PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-std=c++17> -lpthread)
 
