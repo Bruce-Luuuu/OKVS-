@@ -1264,8 +1264,9 @@ namespace volePSI
 		block dense;
 		for (u64 i = 0; i < inputs.size(); ++i, ++inIter)
 		{
-			mHasher.hashBuildRow1Mix(inIter, row, &dense); 		// why so slow?
-			//decode1(rows.data(), dense.data(), values[i], PP, h);
+			mHasher.hashBuildRow1Mix(inIter, row, &dense);
+			decode1Mix(row, &dense, values[i], PP, h);	// change this !
+			row.clear();
 		}
 		setTimePoint("decode done");
 	}
@@ -2811,6 +2812,49 @@ namespace volePSI
 				h.multAdd(values, p[i + mSparseSize], x);
 				//values[0] = values[0] ^ x.gf128Mul(p2[i + mSparseSize]);
 
+			}
+		}
+		else
+		{
+
+			for (u64 i = 0; i < mDenseSize; ++i)
+			{
+				if (*BitIterator((u8*)dense, i))
+				{
+					//values[0] = values[0] ^ p[i + mSparseSize];
+					h.add(values, p[i + mSparseSize]);
+				}
+			}
+		}
+	}
+
+	template<typename IdxType>
+	template<typename ValueType, typename Helper, typename Vec>
+	void Paxos<IdxType>::decode1Mix(
+		const std::vector<IdxType>& row,
+		const block* dense,
+		ValueType* values,
+		Vec& p,
+		Helper& h)
+	{
+		h.assign(values, p[row[0]]);
+		for (u64 j = 1; j < row.size(); ++j)   // add mWight number positions of p to values. (need to calculate mWight first).
+		{
+			h.add(values, p[row[j]]);
+		}
+
+		//auto p2 = p.subspan(mSparseSize);
+
+		if (mDt == DenseType::GF128)
+		{
+			block x = *dense;
+			h.multAdd(values, p[mSparseSize], x);
+
+			for (u64 i = 1; i < mDenseSize; ++i)
+			{
+				x = x.gf128Mul(dense[0]);
+				h.multAdd(values, p[i + mSparseSize], x);
+				//values[0] = values[0] ^ x.gf128Mul(p2[i + mSparseSize]);
 			}
 		}
 		else

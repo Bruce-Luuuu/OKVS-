@@ -305,7 +305,15 @@ namespace volePSI
 			Vec& p,
 			Helper& h);
 
-		// manually set the row indicies and the dense values.
+        template <typename ValueType, typename Helper, typename Vec>					// add new function here ！
+        void decode1Mix(
+			const std::vector<IdxType> &row, 
+			const block *dense, 
+			ValueType *values, 
+			Vec &p, 
+			Helper &h);
+
+        // manually set the row indicies and the dense values.
 		void setInput(MatrixView<IdxType> rows, span<block> dense);
 
 		// manually set the row indicies and the dense values. In 
