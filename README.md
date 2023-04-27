@@ -8,7 +8,7 @@ I extract the OKVS part from their [implementation](https://github.com/Visa-Rese
 ## Specifications
 - OS: Linux x64
 - Language: C++
-- Requires: libOTe
+- Require: libOTe
 
 
 ## Build
