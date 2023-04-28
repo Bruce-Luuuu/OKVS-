@@ -183,7 +183,7 @@ void mixPaxosImpl(oc::CLP& cmd){
 int main(int argc, char** argv){
     CLP cmd;
     cmd.parse(argc, argv);
-	bool choice = cmd.getOr("c", 0);  // determine which implementation to run.
+	u64 choice = cmd.getOr("c", 0);  // determine which implementation to run.
 
 	if (choice == 0)
 	{

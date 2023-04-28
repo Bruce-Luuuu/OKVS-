@@ -221,8 +221,8 @@ namespace volePSI
 		mG = std::floor(ssp / ((weight1 - 2) * std::log2(e * numItems)));
 
 		mDenseSize = mG;
-		//mSparseSize = numItems * e;
-		mSparseSize = numItems * 1.110;
+		double para[] = {1.138, 1.120, 1.1123, 1.110, 1.108, 1.107};
+		mSparseSize = numItems * para[static_cast<int>((logN - 14)/2.0)];
 	}
 
 #ifdef ENABLE_SSE
